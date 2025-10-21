@@ -12,9 +12,21 @@ import {
 import {
 	FILTER_PROFANITY,
 	FILTER_ADVERTISING,
+	USE_NEURAL_NETWORK,
 	toggleProfanity,
 	toggleAdvertising,
+	toggleNeuralNetwork,
+	getCurrentModel,
+	setCurrentModel,
 } from './state.js';
+import {
+	analyzeAllTopics,
+	AVAILABLE_MODELS,
+	getActiveTopics,
+	toggleTopic,
+	TOPICS,
+	getTopicsByPriority,
+} from './neural.js';
 
 export async function initAdminDB() {
 	const profanity = await getWords('profanity_words');
@@ -34,10 +46,19 @@ export async function initAdminDB() {
 }
 
 function mainAdminKeyboard() {
+	const currentModel = getCurrentModel();
+	const shortModel = currentModel.split(':')[0]; // Берем только название без деталей
+
 	return new InlineKeyboard()
 		.text(`${FILTER_PROFANITY ? '✅' : '❌'} Брань`, 'toggle_profanity')
 		.row()
 		.text(`${FILTER_ADVERTISING ? '✅' : '❌'} Реклама`, 'toggle_ad')
+		.row()
+		.text(`${USE_NEURAL_NETWORK ? '✅' : '❌'} Нейросеть`, 'toggle_neural')
+		.row()
+		.text('🧠 Тематики', 'neural_topics')
+		.row()
+		.text(`🤖 ${shortModel}`, 'neural_models')
 		.row()
 		.text('📊 Статистика', 'show_statistics')
 		.row()
@@ -48,6 +69,44 @@ function mainAdminKeyboard() {
 
 function backToAdminKeyboard() {
 	return new InlineKeyboard().text('⬅️ Назад в панель', 'back_to_admin');
+}
+
+function neuralModelsKeyboard() {
+	const keyboard = new InlineKeyboard();
+	const currentModel = getCurrentModel();
+
+	AVAILABLE_MODELS.forEach((model, index) => {
+		const isCurrent = model === currentModel;
+		const shortName = model.split(':')[0]; // Короткое название для кнопки
+
+		// Создаем короткий идентификатор для callback_data
+		const modelId = model.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+		const callbackData = `model_${modelId}`;
+
+		keyboard.text(`${isCurrent ? '✅' : '🔘'} ${shortName}`, callbackData);
+		if (index % 2 === 1) keyboard.row();
+	});
+
+	keyboard.row().text('⬅️ Назад', 'back_to_admin');
+	return keyboard;
+}
+
+function neuralTopicsKeyboard() {
+	const keyboard = new InlineKeyboard();
+	const sortedTopics = getTopicsByPriority();
+
+	sortedTopics.forEach((topic, index) => {
+		// Убедимся что callback_data не слишком длинный
+		const callbackData = `topic_${topic.name}`;
+		keyboard.text(
+			`${topic.enabled ? '✅' : '❌'} ${topic.name} (${topic.priority})`,
+			callbackData
+		);
+		if (index % 2 === 1) keyboard.row();
+	});
+
+	keyboard.row().text('⬅️ Назад', 'back_to_admin');
+	return keyboard;
 }
 
 export function registerAdminPanel(bot: Bot<Context>) {
@@ -88,6 +147,38 @@ export function registerAdminPanel(bot: Bot<Context>) {
 				);
 				break;
 
+			case 'toggle_neural':
+				await ctx.editMessageText(
+					`Нейросеть: ${toggleNeuralNetwork() ? '✅ Вкл' : '❌ Выкл'}`,
+					{ reply_markup: backToAdminKeyboard() }
+				);
+				break;
+
+			case 'neural_topics':
+				const sortedTopics = getTopicsByPriority();
+				const topicsText = sortedTopics
+					.map(
+						(topic: any) =>
+							`• ${topic.name}: ${topic.enabled ? '✅' : '❌'} (приоритет: ${
+								topic.priority
+							})`
+					)
+					.join('\n');
+
+				await ctx.editMessageText(
+					`🧠 Управление тематиками (проверяются последовательно):\n\n${topicsText}\n\nНажмите на тему чтобы включить/выключить:`,
+					{ reply_markup: neuralTopicsKeyboard() }
+				);
+				break;
+
+			case 'neural_models':
+				const currentModel = getCurrentModel();
+				await ctx.editMessageText(
+					`🤖 Выбор модели нейросети:\n\nТекущая модель: ${currentModel}\n\nВыберите модель:`,
+					{ reply_markup: neuralModelsKeyboard() }
+				);
+				break;
+
 			case 'show_statistics': {
 				const now = Math.floor(Date.now() / 1000);
 				const oneHourAgo = now - 3600;
@@ -105,30 +196,55 @@ export function registerAdminPanel(bot: Bot<Context>) {
 				);
 				const allTime = await getCount('SELECT COUNT(*) as c FROM statistics');
 				const violationsAll = await getCount(
-					"SELECT COUNT(*) as c FROM statistics WHERE type IN ('violation_ad','violation_profanity','violation_custom')"
+					"SELECT COUNT(*) as c FROM statistics WHERE type IN ('violation_ad','violation_profanity','violation_custom','neural_bad_words','neural_cars','neural_advertising')"
+				);
+				const neuralViolations = await getCount(
+					"SELECT COUNT(*) as c FROM statistics WHERE type LIKE 'neural_%'"
 				);
 
 				await ctx.editMessageText(
-					`📊 Статистика:\nПоследний час: ${lastHour}\nПоследняя неделя: ${lastWeek}\nВсего: ${allTime} (нарушений: ${violationsAll})`,
+					`📊 Статистика:\nПоследний час: ${lastHour}\nПоследняя неделя: ${lastWeek}\nВсего: ${allTime} (нарушений: ${violationsAll})\n🧠 Нарушений нейросети: ${neuralViolations}`,
 					{ reply_markup: backToAdminKeyboard() }
 				);
 				break;
 			}
 
 			case 'list_words':
+				const activeTopicsList = getActiveTopics();
+				const neuralInfo =
+					activeTopicsList.length > 0
+						? activeTopicsList
+								.map(t => `${t.name} (приоритет: ${t.priority})`)
+								.join('\n')
+						: 'нет активных тематик';
+
 				await ctx.editMessageText(
 					`📝 Список слов:\n🚫 Брань: ${
 						[...profanityWords].join(', ') || 'нет'
 					}\n📢 Реклама: ${
 						[...adWords].join(', ') || 'нет'
-					}\n🧩 Пользовательские: ${[...customWords].join(', ') || 'нет'}`,
+					}\n🧩 Пользовательские: ${
+						[...customWords].join(', ') || 'нет'
+					}\n\n🧠 Тематики нейросети:\n${neuralInfo}`,
 					{ reply_markup: backToAdminKeyboard() }
 				);
 				break;
 
 			case 'show_commands':
 				await ctx.editMessageText(
-					`📜 Команды администратора:\n\n/admin — открыть панель\n/check_chat — анализ ЛС\n/add_profanity <слово>\n/del_profanity <слово>\n/add_ad <слово>\n/del_ad <слово>\n/add_custom <слово>\n/del_custom <слово>`,
+					`📜 Команды администратора:\n\n` +
+						`/admin - панель управления\n` +
+						`/check_chat - анализ ЛС\n` +
+						`/test_neural <текст> - тест нейросети\n` +
+						`/models - список моделей\n` +
+						`/neural_stats - статистика нейросети\n\n` +
+						`📝 Управление словами:\n` +
+						`/add_profanity <словo>\n` +
+						`/del_profanity <словo>\n` +
+						`/add_ad <словo>\n` +
+						`/del_ad <словo>\n` +
+						`/add_custom <словo>\n` +
+						`/del_custom <словo>`,
 					{ reply_markup: backToAdminKeyboard() }
 				);
 				break;
@@ -138,9 +254,121 @@ export function registerAdminPanel(bot: Bot<Context>) {
 					reply_markup: mainAdminKeyboard(),
 				});
 				break;
+
+			default:
+				// Обработка переключения тематик
+				if (data.startsWith('topic_')) {
+					const topicName = data.replace('topic_', '');
+					const topic = TOPICS.find(t => t.name === topicName);
+					if (topic) {
+						topic.enabled = !topic.enabled;
+						await ctx.editMessageText(
+							`Тематика "${topicName}": ${
+								topic.enabled ? '✅ Вкл' : '❌ Выкл'
+							}`,
+							{ reply_markup: neuralTopicsKeyboard() }
+						);
+					}
+				}
+
+				// Обработка смены модели
+				if (data.startsWith('model_')) {
+					const modelId = data.replace('model_', '');
+					// Находим полное имя модели по ID
+					const model = AVAILABLE_MODELS.find(
+						m => m.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) === modelId
+					);
+
+					if (model) {
+						setCurrentModel(model);
+						await ctx.editMessageText(`✅ Модель изменена на: ${model}`, {
+							reply_markup: neuralModelsKeyboard(),
+						});
+					} else {
+						await ctx.answerCallbackQuery({
+							text: 'Модель не найдена',
+							show_alert: true,
+						});
+					}
+				}
+				break;
 		}
 
 		await ctx.answerCallbackQuery();
+	});
+
+	// Команда для статистики нейросети
+	bot.command('neural_stats', async ctx => {
+		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
+
+		const activeTopics = getActiveTopics();
+		const inactiveTopics = TOPICS.filter(topic => !topic.enabled);
+		const currentModel = getCurrentModel();
+
+		const statsText = activeTopics
+			.map(topic => `• ${topic.name}: ✅ (приоритет: ${topic.priority})`)
+			.join('\n');
+
+		const inactiveText = inactiveTopics
+			.map(topic => `• ${topic.name}: ❌`)
+			.join('\n');
+
+		await ctx.reply(
+			`🧠 Статистика нейросети:\n\n` +
+				`Модель: ${currentModel}\n` +
+				`Состояние: ${USE_NEURAL_NETWORK ? '✅ Активна' : '❌ Выключена'}\n\n` +
+				`Активные тематики:\n${statsText}\n\n` +
+				`Неактивные тематики:\n${inactiveText || 'нет'}`
+		);
+	});
+
+	// Команда для тестирования нейросети
+	bot.command('test_neural', async ctx => {
+		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
+
+		const text = ctx.message?.text?.split(' ').slice(1).join(' ');
+		if (!text) {
+			return ctx.reply('❌ Укажите текст: /test_neural ваш текст');
+		}
+
+		await ctx.reply(`🧠 Тестирую нейросеть с текстом: "${text}"`);
+
+		try {
+			const results = await analyzeAllTopics(text);
+
+			let response = `📊 Результаты анализа:\n\n`;
+
+			results.forEach(result => {
+				response += `• ${result.topic}: ${
+					result.detected ? '🚨 ДА' : '✅ НЕТ'
+				}\n`;
+				if (result.reason) {
+					response += `  Ответ: ${result.reason}\n`;
+				}
+				response += '\n';
+			});
+
+			await ctx.reply(response);
+		} catch (error: any) {
+			await ctx.reply(`❌ Ошибка: ${error.message}`);
+		}
+	});
+
+	// Команда для просмотра моделей
+	bot.command('models', async ctx => {
+		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
+
+		const currentModel = getCurrentModel();
+		let response = `🤖 Доступные модели:\n\n`;
+
+		AVAILABLE_MODELS.forEach(model => {
+			response += `${model === currentModel ? '✅' : '🔘'} ${model}\n`;
+		});
+
+		response += `\nТекущая: ${currentModel}\n`;
+		response += `Изменить: /admin → "Модели"`;
+
+		await ctx.reply(response);
 	});
 
 	// === Команды добавления / удаления слов ===
