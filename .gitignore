@@ -1,0 +1,15 @@
+# Node.js
+node_modules/
+dist/
+
+# Логи
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# dotenv
+.env
