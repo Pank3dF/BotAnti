@@ -13,12 +13,15 @@ import {
 	FILTER_PROFANITY,
 	FILTER_ADVERTISING,
 	USE_NEURAL_NETWORK,
+	DELETE_MESSAGES,
 	toggleProfanity,
 	toggleAdvertising,
 	toggleNeuralNetwork,
+	toggleDeleteMessages,
 	getCurrentModel,
 	setCurrentModel,
 } from './state.js';
+
 import {
 	analyzeAllTopics,
 	AVAILABLE_MODELS,
@@ -47,16 +50,18 @@ export async function initAdminDB() {
 
 function mainAdminKeyboard() {
 	const currentModel = getCurrentModel();
-	const shortModel = currentModel.split(':')[0]; // Берем только название без деталей
+	const shortModel = currentModel.split(':')[0];
 
 	return new InlineKeyboard()
+
+		.text(`${DELETE_MESSAGES ? '✅' : '❌'} Удаление`, 'toggle_delete')
+		.row()
 		.text(`${FILTER_PROFANITY ? '✅' : '❌'} Брань`, 'toggle_profanity')
 		.row()
 		.text(`${FILTER_ADVERTISING ? '✅' : '❌'} Реклама`, 'toggle_ad')
 		.row()
 		.text(`${USE_NEURAL_NETWORK ? '✅' : '❌'} Нейросеть`, 'toggle_neural')
 		.row()
-		.text('🧠 Тематики', 'neural_topics')
 		.row()
 		.text(`🤖 ${shortModel}`, 'neural_models')
 		.row()
@@ -77,9 +82,8 @@ function neuralModelsKeyboard() {
 
 	AVAILABLE_MODELS.forEach((model, index) => {
 		const isCurrent = model === currentModel;
-		const shortName = model.split(':')[0]; // Короткое название для кнопки
+		const shortName = model.split(':')[0];
 
-		// Создаем короткий идентификатор для callback_data
 		const modelId = model.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
 		const callbackData = `model_${modelId}`;
 
@@ -96,7 +100,6 @@ function neuralTopicsKeyboard() {
 	const sortedTopics = getTopicsByPriority();
 
 	sortedTopics.forEach((topic, index) => {
-		// Убедимся что callback_data не слишком длинный
 		const callbackData = `topic_${topic.name}`;
 		keyboard.text(
 			`${topic.enabled ? '✅' : '❌'} ${topic.name} (${topic.priority})`,
@@ -110,7 +113,6 @@ function neuralTopicsKeyboard() {
 }
 
 export function registerAdminPanel(bot: Bot<Context>) {
-	// === Команда /admin ===
 	bot.command('admin', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 		if (!ctx.chat || ctx.chat.type !== 'private') {
@@ -122,7 +124,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		});
 	});
 
-	// === Обработка inline кнопок ===
 	bot.on('callback_query:data', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) {
 			return ctx.answerCallbackQuery({ text: 'Нет доступа', show_alert: true });
@@ -133,6 +134,12 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		if (!data) return;
 
 		switch (data) {
+			case 'toggle_delete':
+				await ctx.editMessageText(
+					`Фильтр удаления: ${toggleDeleteMessages() ? '✅ Вкл' : '❌ Выкл'}`,
+					{ reply_markup: backToAdminKeyboard() }
+				);
+				break;
 			case 'toggle_profanity':
 				await ctx.editMessageText(
 					`Фильтр брани: ${toggleProfanity() ? '✅ Вкл' : '❌ Выкл'}`,
@@ -239,12 +246,16 @@ export function registerAdminPanel(bot: Bot<Context>) {
 						`/models - список моделей\n` +
 						`/neural_stats - статистика нейросети\n\n` +
 						`📝 Управление словами:\n` +
-						`/add_profanity <словo>\n` +
-						`/del_profanity <словo>\n` +
-						`/add_ad <словo>\n` +
-						`/del_ad <словo>\n` +
-						`/add_custom <словo>\n` +
-						`/del_custom <словo>`,
+						`/add_profanity <слово>\n` +
+						`/del_profanity <слово>\n` +
+						`/add_ad <слово>\n` +
+						`/del_ad <слово>\n` +
+						`/add_custom <слово>\n` +
+						`/del_custom <слово>\n\n` +
+						`🗂️ Управление темами:\n` +
+						`/add_topic <имя> | <описание> | <приоритет>\n` +
+						`/del_topic <имя>`,
+
 					{ reply_markup: backToAdminKeyboard() }
 				);
 				break;
@@ -256,7 +267,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 				break;
 
 			default:
-				// Обработка переключения тематик
 				if (data.startsWith('topic_')) {
 					const topicName = data.replace('topic_', '');
 					const topic = TOPICS.find(t => t.name === topicName);
@@ -271,10 +281,9 @@ export function registerAdminPanel(bot: Bot<Context>) {
 					}
 				}
 
-				// Обработка смены модели
 				if (data.startsWith('model_')) {
 					const modelId = data.replace('model_', '');
-					// Находим полное имя модели по ID
+
 					const model = AVAILABLE_MODELS.find(
 						m => m.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) === modelId
 					);
@@ -297,7 +306,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		await ctx.answerCallbackQuery();
 	});
 
-	// Команда для статистики нейросети
 	bot.command('neural_stats', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -322,7 +330,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		);
 	});
 
-	// Команда для тестирования нейросети
 	bot.command('test_neural', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -354,7 +361,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		}
 	});
 
-	// Команда для просмотра моделей
 	bot.command('models', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -371,7 +377,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		await ctx.reply(response);
 	});
 
-	// === Команды добавления / удаления слов ===
 	['profanity', 'ad'].forEach(type => {
 		const table = type === 'profanity' ? 'profanity_words' : 'ad_keywords';
 
@@ -410,7 +415,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		});
 	});
 
-	// === Пользовательские слова ===
 	bot.command('add_custom', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -437,5 +441,96 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		await deleteWord('custom_words', word);
 		updateCustom(await getWords('custom_words'));
 		await ctx.reply(`✅ Удалено слово из фильтра: ${word}`);
+	});
+	bot.command('add_topic', async ctx => {
+		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
+
+		const text = ctx.message?.text;
+		if (!text)
+			return ctx.reply(
+				'❌ Укажи данные: /add_topic <имя> | <описание> | <приоритет>'
+			);
+
+		const parts = text.split('|').map(p => p.trim());
+		if (parts.length < 3) {
+			return ctx.reply(
+				'❌ Формат: /add_topic <имя> | <описание> | <приоритет>'
+			);
+		}
+
+		const [nameRaw, description, priorityRaw] = parts;
+		const name = nameRaw.split(' ')[1]?.toLowerCase() || nameRaw.toLowerCase();
+		const priority = parseInt(priorityRaw, 10);
+
+		if (!name || !description || isNaN(priority)) {
+			return ctx.reply(
+				'❌ Формат: /add_topic <имя> | <описание> | <приоритет>'
+			);
+		}
+
+		if (TOPICS.find(t => t.name === name)) {
+			return ctx.reply(`⚠️ Тематика "${name}" уже существует.`);
+		}
+
+		const db = await dbPromise;
+
+		await db.run(`
+		CREATE TABLE IF NOT EXISTS topics (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE,
+			description TEXT,
+			priority INTEGER,
+			enabled INTEGER DEFAULT 1
+		)
+	`);
+
+		await db.run(
+			`INSERT OR IGNORE INTO topics (name, description, priority, enabled) VALUES (?, ?, ?, 1)`,
+			[name, description, priority]
+		);
+
+		TOPICS.push({
+			name,
+			systemPrompt: `Ты — анализатор темы "${name}". Твоя задача — определить, относится ли сообщение к следующему описанию:\n${description}\n\nЕсли относится — ответь "ДА", если нет — ответь "НЕТ".`,
+			keywords: [],
+			priority,
+			enabled: true,
+		});
+
+		await ctx.reply(
+			`✅ Добавлена новая тематика нейросети:\n\n` +
+				`• Название: ${name}\n` +
+				`• Приоритет: ${priority}\n` +
+				`• Описание: ${description}`
+		);
+	});
+
+	bot.command('del_topic', async ctx => {
+		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
+
+		const text = ctx.message?.text;
+		if (!text) return ctx.reply('❌ Укажи имя темы: /del_topic <имя>');
+
+		const name = text.split(' ')[1]?.trim()?.toLowerCase();
+		if (!name) return ctx.reply('❌ Укажи имя темы: /del_topic <имя>');
+
+		const db = await dbPromise;
+
+		const result = await db.run(`DELETE FROM topics WHERE name = ?`, [name]);
+
+		const index = TOPICS.findIndex(t => t.name === name);
+		if (index === -1) {
+			return ctx.reply(`⚠️ Тематика "${name}" не найдена.`);
+		}
+
+		TOPICS.splice(index, 1);
+
+		if ((result.changes ?? 0) > 0) {
+			await ctx.reply(`🗑 Тематика "${name}" удалена из базы и памяти.`);
+		} else {
+			await ctx.reply(
+				`⚠️ Тематика "${name}" не найдена в базе, но удалена из памяти.`
+			);
+		}
 	});
 }
