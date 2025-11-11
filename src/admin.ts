@@ -13,28 +13,14 @@ import {
 	FILTER_PROFANITY,
 	FILTER_ADVERTISING,
 	USE_NEURAL_NETWORK,
-<<<<<<< HEAD
 	DELETE_MESSAGES,
 	toggleProfanity,
 	toggleAdvertising,
 	toggleNeuralNetwork,
 	toggleDeleteMessages,
-=======
-	toggleProfanity,
-	toggleAdvertising,
-	toggleNeuralNetwork,
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 	getCurrentModel,
 	setCurrentModel,
 } from './state.js';
-import {
-	analyzeAllTopics,
-	AVAILABLE_MODELS,
-	getActiveTopics,
-	toggleTopic,
-	TOPICS,
-	getTopicsByPriority,
-} from './neural.js';
 
 import {
 	analyzeAllTopics,
@@ -64,11 +50,7 @@ export async function initAdminDB() {
 
 function mainAdminKeyboard() {
 	const currentModel = getCurrentModel();
-<<<<<<< HEAD
 	const shortModel = currentModel.split(':')[0];
-=======
-	const shortModel = currentModel.split(':')[0]; // Берем только название без деталей
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 
 	return new InlineKeyboard()
 
@@ -80,10 +62,6 @@ function mainAdminKeyboard() {
 		.row()
 		.text(`${USE_NEURAL_NETWORK ? '✅' : '❌'} Нейросеть`, 'toggle_neural')
 		.row()
-<<<<<<< HEAD
-=======
-		.text('🧠 Тематики', 'neural_topics')
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 		.row()
 		.text(`🤖 ${shortModel}`, 'neural_models')
 		.row()
@@ -104,14 +82,8 @@ function neuralModelsKeyboard() {
 
 	AVAILABLE_MODELS.forEach((model, index) => {
 		const isCurrent = model === currentModel;
-<<<<<<< HEAD
 		const shortName = model.split(':')[0];
 
-=======
-		const shortName = model.split(':')[0]; // Короткое название для кнопки
-
-		// Создаем короткий идентификатор для callback_data
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 		const modelId = model.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
 		const callbackData = `model_${modelId}`;
 
@@ -128,10 +100,6 @@ function neuralTopicsKeyboard() {
 	const sortedTopics = getTopicsByPriority();
 
 	sortedTopics.forEach((topic, index) => {
-<<<<<<< HEAD
-=======
-		// Убедимся что callback_data не слишком длинный
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 		const callbackData = `topic_${topic.name}`;
 		keyboard.text(
 			`${topic.enabled ? '✅' : '❌'} ${topic.name} (${topic.priority})`,
@@ -278,7 +246,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 						`/models - список моделей\n` +
 						`/neural_stats - статистика нейросети\n\n` +
 						`📝 Управление словами:\n` +
-<<<<<<< HEAD
 						`/add_profanity <слово>\n` +
 						`/del_profanity <слово>\n` +
 						`/add_ad <слово>\n` +
@@ -289,14 +256,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 						`/add_topic <имя> | <описание> | <приоритет>\n` +
 						`/del_topic <имя>`,
 
-=======
-						`/add_profanity <словo>\n` +
-						`/del_profanity <словo>\n` +
-						`/add_ad <словo>\n` +
-						`/del_ad <словo>\n` +
-						`/add_custom <словo>\n` +
-						`/del_custom <словo>`,
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 					{ reply_markup: backToAdminKeyboard() }
 				);
 				break;
@@ -308,10 +267,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 				break;
 
 			default:
-<<<<<<< HEAD
-=======
-				// Обработка переключения тематик
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 				if (data.startsWith('topic_')) {
 					const topicName = data.replace('topic_', '');
 					const topic = TOPICS.find(t => t.name === topicName);
@@ -326,16 +281,9 @@ export function registerAdminPanel(bot: Bot<Context>) {
 					}
 				}
 
-<<<<<<< HEAD
 				if (data.startsWith('model_')) {
 					const modelId = data.replace('model_', '');
 
-=======
-				// Обработка смены модели
-				if (data.startsWith('model_')) {
-					const modelId = data.replace('model_', '');
-					// Находим полное имя модели по ID
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 					const model = AVAILABLE_MODELS.find(
 						m => m.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30) === modelId
 					);
@@ -358,10 +306,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		await ctx.answerCallbackQuery();
 	});
 
-<<<<<<< HEAD
-=======
-	// Команда для статистики нейросети
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 	bot.command('neural_stats', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -386,10 +330,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		);
 	});
 
-<<<<<<< HEAD
-=======
-	// Команда для тестирования нейросети
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 	bot.command('test_neural', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -421,10 +361,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		}
 	});
 
-<<<<<<< HEAD
-=======
-	// Команда для просмотра моделей
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 	bot.command('models', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 
@@ -441,10 +377,6 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		await ctx.reply(response);
 	});
 
-<<<<<<< HEAD
-=======
-	// === Команды добавления / удаления слов ===
->>>>>>> 1c1cce6022a1e1378e8e8829780eaddde262929d
 	['profanity', 'ad'].forEach(type => {
 		const table = type === 'profanity' ? 'profanity_words' : 'ad_keywords';
 
