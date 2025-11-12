@@ -46,6 +46,24 @@ export async function initAdminDB() {
 	updateProfanity(await getWords('profanity_words'));
 	updateAd(await getWords('ad_keywords'));
 	updateCustom(await getWords('custom_words'));
+	const db = await dbPromise;
+	const rows = await db.all(
+		`SELECT name, system_prompt, priority, enabled FROM topics`
+	);
+
+	for (const row of rows) {
+		if (!TOPICS.find(t => t.name === row.name)) {
+			TOPICS.push({
+				name: row.name,
+				systemPrompt: row.system_prompt,
+				keywords: [],
+				priority: row.priority,
+				enabled: !!row.enabled,
+			});
+		}
+	}
+
+	console.log(`🧠 Загружено тем из БД: ${rows.length}`);
 }
 
 function mainAdminKeyboard() {
@@ -62,8 +80,9 @@ function mainAdminKeyboard() {
 		.row()
 		.text(`${USE_NEURAL_NETWORK ? '✅' : '❌'} Нейросеть`, 'toggle_neural')
 		.row()
-		.row()
 		.text(`🤖 ${shortModel}`, 'neural_models')
+		.row()
+		.text('🧠 Темы нейросети', 'neural_topics')
 		.row()
 		.text('📊 Статистика', 'show_statistics')
 		.row()
@@ -100,11 +119,12 @@ function neuralTopicsKeyboard() {
 	const sortedTopics = getTopicsByPriority();
 
 	sortedTopics.forEach((topic, index) => {
+		const label = `${topic.enabled ? '✅' : '❌'} ${topic.name} (${
+			topic.priority
+		})`;
 		const callbackData = `topic_${topic.name}`;
-		keyboard.text(
-			`${topic.enabled ? '✅' : '❌'} ${topic.name} (${topic.priority})`,
-			callbackData
-		);
+		keyboard.text(label, callbackData);
+
 		if (index % 2 === 1) keyboard.row();
 	});
 
@@ -112,7 +132,12 @@ function neuralTopicsKeyboard() {
 	return keyboard;
 }
 
+
 export function registerAdminPanel(bot: Bot<Context>) {
+	bot.command('start', async ctx => {
+		await ctx.reply('Бот запущен, откройте панель администратора - /admin');
+	});
+
 	bot.command('admin', async ctx => {
 		if (!ctx.from || !ADMINS.includes(ctx.from.id)) return;
 		if (!ctx.chat || ctx.chat.type !== 'private') {
@@ -265,21 +290,62 @@ export function registerAdminPanel(bot: Bot<Context>) {
 					reply_markup: mainAdminKeyboard(),
 				});
 				break;
+			case 'neural_topics': {
+				const sortedTopics = getTopicsByPriority();
+				if (sortedTopics.length === 0) {
+					await ctx.editMessageText(
+						'🧠 В базе пока нет тематик. Добавь их через /add_topic.',
+						{ reply_markup: backToAdminKeyboard() }
+					);
+					break;
+				}
+
+				let topicsText = '🧠 Управление тематиками:\n\n';
+				for (const t of sortedTopics) {
+					topicsText += `• <b>${t.name}</b> (${t.priority})\n`;
+					topicsText += `   ${t.enabled ? '✅ Включена' : '❌ Выключена'}\n`;
+					topicsText += `   <i>${t.systemPrompt.slice(0, 120)}${
+						t.systemPrompt.length > 120 ? '…' : ''
+					}</i>\n\n`;
+				}
+
+				await ctx.editMessageText(topicsText, {
+					parse_mode: 'HTML',
+					reply_markup: neuralTopicsKeyboard(), // 👈 оставляем клавиатуру ниже
+				});
+				break;
+			}
 
 			default:
 				if (data.startsWith('topic_')) {
 					const topicName = data.replace('topic_', '');
 					const topic = TOPICS.find(t => t.name === topicName);
 					if (topic) {
-						topic.enabled = !topic.enabled;
-						await ctx.editMessageText(
-							`Тематика "${topicName}": ${
-								topic.enabled ? '✅ Вкл' : '❌ Выкл'
-							}`,
-							{ reply_markup: neuralTopicsKeyboard() }
-						);
+						const newState = !topic.enabled;
+						const success = await toggleTopic(topicName, newState);
+
+						if (success) {
+							await ctx.editMessageText(
+								`🧠 Тематика "${topicName}" теперь ${
+									newState ? '✅ Включена' : '❌ Выключена'
+								}.\n\n` +
+									`<b>Prompt:</b>\n${topic.systemPrompt.slice(0, 200)}${
+										topic.systemPrompt.length > 200 ? '…' : ''
+									}`,
+								{
+									parse_mode: 'HTML',
+									reply_markup: neuralTopicsKeyboard(),
+								}
+							);
+						} else {
+							await ctx.answerCallbackQuery({
+								text: 'Ошибка при обновлении темы 😕',
+								show_alert: true,
+							});
+						}
 					}
 				}
+
 
 				if (data.startsWith('model_')) {
 					const modelId = data.replace('model_', '');
@@ -448,23 +514,23 @@ export function registerAdminPanel(bot: Bot<Context>) {
 		const text = ctx.message?.text;
 		if (!text)
 			return ctx.reply(
-				'❌ Укажи данные: /add_topic <имя> | <описание> | <приоритет>'
+				'❌ Укажи данные: /add_topic <имя> | <описание> | <приоритет> | <свой prompt>'
 			);
 
 		const parts = text.split('|').map(p => p.trim());
 		if (parts.length < 3) {
 			return ctx.reply(
-				'❌ Формат: /add_topic <имя> | <описание> | <приоритет>'
+				'❌ Формат: /add_topic <имя> | <описание> | <приоритет> | <свой prompt>'
 			);
 		}
 
-		const [nameRaw, description, priorityRaw] = parts;
+		const [nameRaw, description, priorityRaw, customPrompt] = parts;
 		const name = nameRaw.split(' ')[1]?.toLowerCase() || nameRaw.toLowerCase();
 		const priority = parseInt(priorityRaw, 10);
 
 		if (!name || !description || isNaN(priority)) {
 			return ctx.reply(
-				'❌ Формат: /add_topic <имя> | <описание> | <приоритет>'
+				'❌ Формат: /add_topic <имя> | <описание> | <приоритет> | <свой prompt>'
 			);
 		}
 
@@ -479,19 +545,29 @@ export function registerAdminPanel(bot: Bot<Context>) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT UNIQUE,
 			description TEXT,
+			system_prompt TEXT,
 			priority INTEGER,
 			enabled INTEGER DEFAULT 1
 		)
 	`);
 
+		const systemPrompt = customPrompt
+			? customPrompt
+			: `Ты — анализатор темы "${name}". 
+Твоя задача — определить, относится ли сообщение к следующему описанию:
+${description}
+
+Если относится — ответь "ДА", если нет — ответь "НЕТ".`;
+
 		await db.run(
-			`INSERT OR IGNORE INTO topics (name, description, priority, enabled) VALUES (?, ?, ?, 1)`,
-			[name, description, priority]
+			`INSERT OR REPLACE INTO topics (name, description, system_prompt, priority, enabled)
+	 VALUES (?, ?, ?, ?, 1)`,
+			[name, description, systemPrompt, priority]
 		);
 
 		TOPICS.push({
 			name,
-			systemPrompt: `Ты — анализатор темы "${name}". Твоя задача — определить, относится ли сообщение к следующему описанию:\n${description}\n\nЕсли относится — ответь "ДА", если нет — ответь "НЕТ".`,
+			systemPrompt,
 			keywords: [],
 			priority,
 			enabled: true,

@@ -17,16 +17,17 @@ export async function initDB() {
             type TEXT,
             timestamp INTEGER
         );
-        -- ✅ Таблица тематик нейросети
         CREATE TABLE IF NOT EXISTS topics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE,
             description TEXT,
+            system_prompt TEXT,
             priority INTEGER,
             enabled INTEGER DEFAULT 1
         );
     `);
 }
+
 
 export async function addWord(
 	table: 'profanity_words' | 'ad_keywords' | 'custom_words',
