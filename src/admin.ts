@@ -278,7 +278,7 @@ export function registerAdminPanel(bot: Bot<Context>) {
 						`/add_custom <слово>\n` +
 						`/del_custom <слово>\n\n` +
 						`🗂️ Управление темами:\n` +
-						`/add_topic <имя> | <описание> | <приоритет>\n` +
+						`/add_topic <имя> | <описание> | <приоритет> | <свой prompt>\n` +
 						`/del_topic <имя>`,
 
 					{ reply_markup: backToAdminKeyboard() }
